@@ -2,20 +2,20 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <sstream>
 #include <vector>
 
 // Include the functions from intersection.cu
 #include "../src/intersection.cu"
 
-// CUDA error checking macro
-#define CUDA_CHECK(call)                                                 \
-  do {                                                                   \
-    cudaError_t err = call;                                              \
-    if (err != cudaSuccess) {                                            \
-      FAIL() << "CUDA error at " << __FILE__ << ":" << __LINE__ << " - " \
-             << cudaGetErrorString(err);                                 \
-    }                                                                    \
-  } while (0)
+void check(cudaError_t result, const char* file, int line) {
+  if (result != cudaSuccess) {
+    FAIL() << "CUDA error at " << file << ":" << line << " - "
+           << cudaGetErrorString(result) << " (code " << result << ")";
+  }
+}
+
+#define checkCudaErrors(val) check((val), __FILE__, __LINE__)
 
 // CUDA kernel function: test cross function
 __global__ void test_cross_kernel(float2* a, float2* b, float* result, int n) {
@@ -34,7 +34,8 @@ __global__ void test_intersection1d_kernel(float2* a, float2* b, bool* result,
   }
 }
 
-// CUDA kernel function: test intersection2d function (without returning intersection point)
+// CUDA kernel function: test intersection2d function (without returning
+// intersection point)
 __global__ void test_intersection2d_kernel(float2* a1, float2* a2, float2* b1,
                                            float2* b2, bool* result, int n) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -43,7 +44,8 @@ __global__ void test_intersection2d_kernel(float2* a1, float2* a2, float2* b1,
   }
 }
 
-// CUDA kernel function: test intersection2d function (with returning intersection point)
+// CUDA kernel function: test intersection2d function (with returning
+// intersection point)
 __global__ void test_intersection2d_with_point_kernel(
     float2* a1, float2* a2, float2* b1, float2* b2, bool* result,
     float2* intersection_points, int n) {
@@ -67,8 +69,8 @@ class CUDAMathTest : public ::testing::Test {
     cudaDeviceProp deviceProp;
     cudaGetDeviceProperties(&deviceProp, 0);
     std::cout << "Using CUDA device: " << deviceProp.name << std::endl;
-    std::cout << "Compute capability: " << deviceProp.major << "." << deviceProp.minor
-              << std::endl;
+    std::cout << "Compute capability: " << deviceProp.major << "."
+              << deviceProp.minor << std::endl;
   }
 
   void TearDown() override {
@@ -90,20 +92,20 @@ TEST_F(CUDAMathTest, CrossFunction) {
   float* result_dev;
   std::vector<float> result_host(n);
 
-  CUDA_CHECK(cudaMalloc(&a_dev, n * sizeof(float2)));
-  CUDA_CHECK(cudaMalloc(&b_dev, n * sizeof(float2)));
-  CUDA_CHECK(cudaMalloc(&result_dev, n * sizeof(float)));
+  checkCudaErrors(cudaMalloc(&a_dev, n * sizeof(float2)));
+  checkCudaErrors(cudaMalloc(&b_dev, n * sizeof(float2)));
+  checkCudaErrors(cudaMalloc(&result_dev, n * sizeof(float)));
 
-  CUDA_CHECK(cudaMemcpy(a_dev, a_host.data(), n * sizeof(float2),
-                        cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(b_dev, b_host.data(), n * sizeof(float2),
-                        cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(a_dev, a_host.data(), n * sizeof(float2),
+                             cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(b_dev, b_host.data(), n * sizeof(float2),
+                             cudaMemcpyHostToDevice));
 
   test_cross_kernel<<<1, n>>>(a_dev, b_dev, result_dev, n);
-  CUDA_CHECK(cudaDeviceSynchronize());
+  checkCudaErrors(cudaDeviceSynchronize());
 
-  CUDA_CHECK(cudaMemcpy(result_host.data(), result_dev, n * sizeof(float),
-                        cudaMemcpyDeviceToHost));
+  checkCudaErrors(cudaMemcpy(result_host.data(), result_dev, n * sizeof(float),
+                             cudaMemcpyDeviceToHost));
 
   for (int i = 0; i < n; i++) {
     EXPECT_NEAR(result_host[i], expected[i], 1e-6)
@@ -130,20 +132,20 @@ TEST_F(CUDAMathTest, Intersection1DFunction) {
   std::vector<bool> result_host(n);
   bool* result_host_ptr = new bool[n];
 
-  CUDA_CHECK(cudaMalloc(&a_dev, n * sizeof(float2)));
-  CUDA_CHECK(cudaMalloc(&b_dev, n * sizeof(float2)));
-  CUDA_CHECK(cudaMalloc(&result_dev, n * sizeof(bool)));
+  checkCudaErrors(cudaMalloc(&a_dev, n * sizeof(float2)));
+  checkCudaErrors(cudaMalloc(&b_dev, n * sizeof(float2)));
+  checkCudaErrors(cudaMalloc(&result_dev, n * sizeof(bool)));
 
-  CUDA_CHECK(cudaMemcpy(a_dev, a_host.data(), n * sizeof(float2),
-                        cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(b_dev, b_host.data(), n * sizeof(float2),
-                        cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(a_dev, a_host.data(), n * sizeof(float2),
+                             cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(b_dev, b_host.data(), n * sizeof(float2),
+                             cudaMemcpyHostToDevice));
 
   test_intersection1d_kernel<<<1, n>>>(a_dev, b_dev, result_dev, n);
-  CUDA_CHECK(cudaDeviceSynchronize());
+  checkCudaErrors(cudaDeviceSynchronize());
 
-  CUDA_CHECK(cudaMemcpy(result_host_ptr, result_dev, n * sizeof(bool),
-                        cudaMemcpyDeviceToHost));
+  checkCudaErrors(cudaMemcpy(result_host_ptr, result_dev, n * sizeof(bool),
+                             cudaMemcpyDeviceToHost));
   for (int i = 0; i < n; i++) {
     result_host[i] = result_host_ptr[i];
   }
@@ -178,27 +180,27 @@ TEST_F(CUDAMathTest, Intersection2DFunction) {
   std::vector<bool> result_host(n);
   bool* result_host_ptr = new bool[n];
 
-  CUDA_CHECK(cudaMalloc(&a1_dev, n * sizeof(float2)));
-  CUDA_CHECK(cudaMalloc(&a2_dev, n * sizeof(float2)));
-  CUDA_CHECK(cudaMalloc(&b1_dev, n * sizeof(float2)));
-  CUDA_CHECK(cudaMalloc(&b2_dev, n * sizeof(float2)));
-  CUDA_CHECK(cudaMalloc(&result_dev, n * sizeof(bool)));
+  checkCudaErrors(cudaMalloc(&a1_dev, n * sizeof(float2)));
+  checkCudaErrors(cudaMalloc(&a2_dev, n * sizeof(float2)));
+  checkCudaErrors(cudaMalloc(&b1_dev, n * sizeof(float2)));
+  checkCudaErrors(cudaMalloc(&b2_dev, n * sizeof(float2)));
+  checkCudaErrors(cudaMalloc(&result_dev, n * sizeof(bool)));
 
-  CUDA_CHECK(cudaMemcpy(a1_dev, a1_host.data(), n * sizeof(float2),
-                        cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(a2_dev, a2_host.data(), n * sizeof(float2),
-                        cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(b1_dev, b1_host.data(), n * sizeof(float2),
-                        cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(b2_dev, b2_host.data(), n * sizeof(float2),
-                        cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(a1_dev, a1_host.data(), n * sizeof(float2),
+                             cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(a2_dev, a2_host.data(), n * sizeof(float2),
+                             cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(b1_dev, b1_host.data(), n * sizeof(float2),
+                             cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(b2_dev, b2_host.data(), n * sizeof(float2),
+                             cudaMemcpyHostToDevice));
 
   test_intersection2d_kernel<<<1, n>>>(a1_dev, a2_dev, b1_dev, b2_dev,
                                        result_dev, n);
-  CUDA_CHECK(cudaDeviceSynchronize());
+  checkCudaErrors(cudaDeviceSynchronize());
 
-  CUDA_CHECK(cudaMemcpy(result_host_ptr, result_dev, n * sizeof(bool),
-                        cudaMemcpyDeviceToHost));
+  checkCudaErrors(cudaMemcpy(result_host_ptr, result_dev, n * sizeof(bool),
+                             cudaMemcpyDeviceToHost));
   for (int i = 0; i < n; i++) {
     result_host[i] = result_host_ptr[i];
   }
@@ -236,42 +238,45 @@ TEST_F(CUDAMathTest, Intersection2DWithPointFunction) {
   std::vector<float2> points_host(n);
   bool* result_host_ptr = new bool[n];
 
-  CUDA_CHECK(cudaMalloc(&a1_dev, n * sizeof(float2)));
-  CUDA_CHECK(cudaMalloc(&a2_dev, n * sizeof(float2)));
-  CUDA_CHECK(cudaMalloc(&b1_dev, n * sizeof(float2)));
-  CUDA_CHECK(cudaMalloc(&b2_dev, n * sizeof(float2)));
-  CUDA_CHECK(cudaMalloc(&result_dev, n * sizeof(bool)));
-  CUDA_CHECK(cudaMalloc(&points_dev, n * sizeof(float2)));
+  checkCudaErrors(cudaMalloc(&a1_dev, n * sizeof(float2)));
+  checkCudaErrors(cudaMalloc(&a2_dev, n * sizeof(float2)));
+  checkCudaErrors(cudaMalloc(&b1_dev, n * sizeof(float2)));
+  checkCudaErrors(cudaMalloc(&b2_dev, n * sizeof(float2)));
+  checkCudaErrors(cudaMalloc(&result_dev, n * sizeof(bool)));
+  checkCudaErrors(cudaMalloc(&points_dev, n * sizeof(float2)));
 
-  CUDA_CHECK(cudaMemcpy(a1_dev, a1_host.data(), n * sizeof(float2),
-                        cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(a2_dev, a2_host.data(), n * sizeof(float2),
-                        cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(b1_dev, b1_host.data(), n * sizeof(float2),
-                        cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(b2_dev, b2_host.data(), n * sizeof(float2),
-                        cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(a1_dev, a1_host.data(), n * sizeof(float2),
+                             cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(a2_dev, a2_host.data(), n * sizeof(float2),
+                             cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(b1_dev, b1_host.data(), n * sizeof(float2),
+                             cudaMemcpyHostToDevice));
+  checkCudaErrors(cudaMemcpy(b2_dev, b2_host.data(), n * sizeof(float2),
+                             cudaMemcpyHostToDevice));
 
   test_intersection2d_with_point_kernel<<<1, n>>>(
       a1_dev, a2_dev, b1_dev, b2_dev, result_dev, points_dev, n);
-  CUDA_CHECK(cudaDeviceSynchronize());
+  checkCudaErrors(cudaDeviceSynchronize());
 
-  CUDA_CHECK(cudaMemcpy(result_host_ptr, result_dev, n * sizeof(bool),
-                        cudaMemcpyDeviceToHost));
-  CUDA_CHECK(cudaMemcpy(points_host.data(), points_dev, n * sizeof(float2),
-                        cudaMemcpyDeviceToHost));
+  checkCudaErrors(cudaMemcpy(result_host_ptr, result_dev, n * sizeof(bool),
+                             cudaMemcpyDeviceToHost));
+  checkCudaErrors(cudaMemcpy(points_host.data(), points_dev, n * sizeof(float2),
+                             cudaMemcpyDeviceToHost));
   for (int i = 0; i < n; i++) {
     result_host[i] = result_host_ptr[i];
   }
 
   for (int i = 0; i < n; i++) {
     EXPECT_EQ(result_host[i], expected[i])
-        << "Test " << i + 1 << " intersection2d returned wrong intersection result";
+        << "Test " << i + 1
+        << " intersection2d returned wrong intersection result";
     if (result_host[i]) {
       EXPECT_NEAR(points_host[i].x, expected_points[i].x, 1e-6)
-          << "Test " << i + 1 << " intersection point x-coordinate is incorrect";
+          << "Test " << i + 1
+          << " intersection point x-coordinate is incorrect";
       EXPECT_NEAR(points_host[i].y, expected_points[i].y, 1e-6)
-          << "Test " << i + 1 << " intersection point y-coordinate is incorrect";
+          << "Test " << i + 1
+          << " intersection point y-coordinate is incorrect";
     }
   }
 
